@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     @bot.message_handler(func=lambda message: message.document.mime_type == 'text/plain', content_types=['document'])
     def send_message(message):
-        print("geted reqИ никто н", message.chat.id)
+        print("got request", message.chat.id)
         try:
             random.seed()
             file_name = message.document.file_name
@@ -34,7 +34,7 @@ if __name__ == '__main__':
                 bot.send_message(message.chat.id, "File must be called 'group.txt'")
                 return
             file_id_info = bot.get_file(message.document.file_id)
-            print("geted", message.chat.id)
+            print("got document", message.chat.id)
             downloaded_file = bot.download_file(file_id_info.file_path)
             src = file_name
             with open(src, 'wb') as loaded_file:
