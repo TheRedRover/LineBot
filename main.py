@@ -6,7 +6,7 @@ import os
 
 from datetime import datetime
 
-token = '1879111908:AAGpn6-hdnTfgugWp_DlL_Dn-z6An_62-YM'
+token = '<TOKEN>'
 
 if __name__ == '__main__':
 
