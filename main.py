@@ -28,6 +28,7 @@ if __name__ == '__main__':
     def send_message(message):
         print("geted reqИ никто н", message.chat.id)
         try:
+            random.seed()
             file_name = message.document.file_name
             if(not file_name=="group.txt"):
                 bot.send_message(message.chat.id, "File must be called 'group.txt'")
@@ -41,8 +42,8 @@ if __name__ == '__main__':
             with open(src, 'r') as file:
                 lines = file.read()
                 lines = list(lines.split('\n'))
-                random.shuffle(lines)
-                random.shuffle(lines)
+                # random.shuffle(lines)
+                # random.shuffle(lines)
                 random.shuffle(lines)
                 answer = ""
                 i=1
