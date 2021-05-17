@@ -7,7 +7,6 @@ import os
 from datetime import datetime
 
 token = '1879111908:AAGpn6-hdnTfgugWp_DlL_Dn-z6An_62-YM'
-random.seed(datetime.now())
 
 if __name__ == '__main__':
 
@@ -29,6 +28,7 @@ if __name__ == '__main__':
     def send_message(message):
         print("geted reqИ никто н", message.chat.id)
         try:
+            random.seed()
             file_name = message.document.file_name
             if(not file_name=="group.txt"):
                 bot.send_message(message.chat.id, "File must be called 'group.txt'")
