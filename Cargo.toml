@@ -13,6 +13,7 @@ tokio = { version = "1.5.0", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-stream = "0.1.5"
 futures = "0.3.14"
 warp = "0.3.1"
+diesel = {version = "1.4.6",features = ["postgres"]}
 
 [profile.release]
 lto = true
