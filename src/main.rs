@@ -39,8 +39,8 @@ enum QueueCommand {
     Swap(u32, u32),
     #[command(rename = "queue", description = "Create a new queue.")]
     CreateQueue,
-    #[command(rename = "addelem", description = "Create a new queue from a file.")]
-    AddElementsToQueue,
+    #[command(rename = "queuefile", description = "Create a new queue from a file.")]
+    CreateQueueFromFile,
 }
 
 async fn run() {
@@ -65,7 +65,7 @@ async fn answer(
         QueueCommand::Swap(_, _) => {
             unimplemented!()
         }
-        QueueCommand::AddElementsToQueue => {
+        QueueCommand::CreateQueueFromFile => {
             use models::Chat;
 
             let chat = get_or_create_chat(&conn, chat_id)?;
@@ -106,12 +106,12 @@ async fn answer(
         QueueCommand::CreateQueue => {
             let chat_id = cx.update.chat_id();
 
-            match get_chat(&conn,chat_id){
-                Ok(chat) => {
-
-                }
+            match get_chat(&conn, chat_id) {
+                Ok(chat) => {}
                 Err(_) => {
-                    cx.answer("You must first create add elements.").send().await?;
+                    cx.answer("You must first create add elements.")
+                        .send()
+                        .await?;
                 }
             }
 
