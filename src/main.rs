@@ -1,6 +1,5 @@
 mod consts;
 mod da;
-mod models;
 mod schema;
 
 #[macro_use]
@@ -8,9 +7,8 @@ extern crate diesel;
 
 use diesel::{prelude::*, Connection, PgConnection, QueryDsl};
 use futures::Future;
-use models::QueueElement;
+use da::models::QueueElement;
 use std::net::Ipv4Addr;
-
 use std::{collections::HashMap, env, error::Error, str::from_utf8};
 use teloxide::{net::Download, prelude::*, types::File, utils::command::BotCommand};
 

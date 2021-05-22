@@ -1,4 +1,4 @@
-use super::schema::*;
+use crate::schema::*;
 
 #[derive(Queryable, Insertable, Identifiable)]
 #[table_name = "chats"]
