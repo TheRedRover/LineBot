@@ -1,7 +1,4 @@
-use diesel::prelude::*;
-use diesel::{PgConnection, QueryDsl};
-
-use models::{Chat, QueueElement};
+use diesel::{PgConnection, QueryDsl, prelude::*};
 
 use teloxide::{
     net::Download,
@@ -9,10 +6,7 @@ use teloxide::{
     types::{File, InputFile},
     utils::command::BotCommand,
 };
-
-use crate::models;
-use crate::models::Queues;
-use crate::schema;
+use crate::{models::{self, Queues,Chat, QueueElement}, schema};
 
 pub fn get_chat(conn: &PgConnection, chat_id: i64) -> Result<models::Chat, diesel::result::Error> {
     use schema::chats::dsl::*;
