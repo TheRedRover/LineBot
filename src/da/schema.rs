@@ -67,8 +67,4 @@ table! {
 joinable!(queue_elements -> chats (chat_id));
 joinable!(queues -> chats (chat_id));
 
-allow_tables_to_appear_in_same_query!(
-    chats,
-    queue_elements,
-    queues,
-);
+allow_tables_to_appear_in_same_query!(chats, queue_elements, queues,);

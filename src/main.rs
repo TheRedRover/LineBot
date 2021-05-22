@@ -5,7 +5,7 @@ mod error;
 #[macro_use]
 extern crate diesel;
 
-use da::{QueueElement, QueueRepository};
+use da::QueueRepository;
 use diesel::{prelude::*, Connection, PgConnection, QueryDsl};
 use futures::Future;
 use rand;
@@ -157,7 +157,7 @@ fn create_queue_based_on(
     repo: &QueueRepository,
     queue_model: &da::Queue,
 ) -> Result<Vec<da::QueueElementForQueue>, error::Error> {
-    let mut queue = repo.get_elements_for_queue(queue_model)?;
+    let queue = repo.get_elements_for_queue(queue_model)?;
     Ok(shuffled_queue(queue))
 }
 

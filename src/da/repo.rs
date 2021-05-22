@@ -1,6 +1,6 @@
 use diesel::{prelude::*, PgConnection, QueryDsl};
 
-use super::models::{self, Chat, QueueElement, QueueElementForQueue, Queue};
+use super::models::{self, Chat, Queue, QueueElement, QueueElementForQueue};
 use super::schema;
 use teloxide::{
     net::Download,
