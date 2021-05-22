@@ -1,6 +1,7 @@
 mod consts;
 mod models;
 mod schema;
+mod da;
 
 #[macro_use]
 extern crate diesel;
@@ -68,8 +69,8 @@ async fn answer(
         QueueCommand::CreateQueueFromFile => {
             use models::Chat;
 
-            let chat = get_or_create_chat(&conn, chat_id)?;
-            let queue = create_new_queue(&conn, cx.update.id as i64, chat.id)?;
+            let chat = da::get_or_create_chat(&conn, chat_id)?;
+            let queue = da::create_new_queue(&conn, cx.update.id as i64, chat.id)?;
 
             match cx.update.document() {
                 Some(doc) => {
@@ -94,7 +95,7 @@ async fn answer(
                         })
                         .collect();
 
-                    populate_queue(&conn, elems)?;
+                    da::populate_queue(&conn, elems)?;
                 }
                 None => {
                     cx.answer("Please provide a file.").send().await?;
@@ -106,7 +107,8 @@ async fn answer(
         QueueCommand::CreateQueue => {
             let chat_id = cx.update.chat_id();
 
-            match get_chat(&conn, chat_id) {
+            let chat = da::get_chat(&conn, chat_id);
+            match chat {
                 Ok(chat) => {}
                 Err(_) => {
                     cx.answer("You must first create add elements.")
@@ -120,50 +122,6 @@ async fn answer(
     };
 
     Ok(())
-}
-
-fn get_or_create_chat(
-    conn: &PgConnection,
-    chat_id: i64,
-) -> Result<models::Chat, diesel::result::Error> {
-    use schema::chats::dsl::*;
-    Ok(match get_chat(conn, chat_id) {
-        Ok(c) => c,
-        Err(_) => diesel::insert_into(chats)
-            .values(Chat { id: chat_id })
-            .get_result(conn)?,
-    })
-}
-
-fn get_chat(conn: &PgConnection, chat_id: i64) -> Result<models::Chat, diesel::result::Error> {
-    use schema::chats::dsl::*;
-    chats.filter(id.eq(chat_id)).first::<Chat>(conn)
-}
-
-fn create_new_queue(
-    conn: &PgConnection,
-    id: i64,
-    chat_id: i64,
-) -> Result<models::Queues, diesel::result::Error> {
-    use schema::queues::dsl::queues;
-
-    Ok(diesel::insert_into(queues)
-        .values(Queues {
-            id: id,
-            chat_id: chat_id,
-        })
-        .get_result(conn)?)
-}
-
-fn populate_queue(
-    conn: &PgConnection,
-    queue_elems: Vec<QueueElement>,
-) -> Result<Vec<QueueElement>, diesel::result::Error> {
-    use schema::queue_element::dsl::*;
-
-    Ok(diesel::insert_into(queue_element)
-        .values(queue_elems)
-        .get_results(conn)?)
 }
 
 fn create_bot() -> impl Future {
