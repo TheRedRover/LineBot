@@ -1,5 +1,6 @@
-pub mod funcs;
-pub mod models;
+mod models;
+mod repo;
+mod schema;
 
-pub use funcs::*;
 pub use models::*;
+pub use repo::*;

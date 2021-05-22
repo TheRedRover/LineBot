@@ -1,17 +1,16 @@
 mod consts;
 mod da;
-mod schema;
+mod error;
 
 #[macro_use]
 extern crate diesel;
 
-use da::models::QueueElement;
+use da::{QueueElement, QueueRepository};
 use diesel::{prelude::*, Connection, PgConnection, QueryDsl};
 use futures::Future;
-use std::net::Ipv4Addr;
-use std::{collections::HashMap, env, error::Error, str::from_utf8};
+use rand;
+use std::{collections::HashMap, env, error::Error, net::Ipv4Addr, str::from_utf8};
 use teloxide::{net::Download, prelude::*, types::File, utils::command::BotCommand};
-
 use warp::{http::Response, Filter};
 
 #[tokio::main]
@@ -19,7 +18,7 @@ async fn main() {
     run().await;
 }
 
-#[derive(BotCommand)]
+#[derive(BotCommand, Debug)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum QueueCommand {
     #[command(description = "Obtain help.")]
@@ -47,18 +46,27 @@ async fn answer(
     command: QueueCommand,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let conn = establish_connection();
+    let repo = da::QueueRepository::from_connection(conn);
     let chat_id = cx.update.chat_id();
 
+    log::info!("Chat: {}; Command: {:?}", chat_id, command);
+
     match command {
-        QueueCommand::Help => cx.answer(QueueCommand::descriptions()).send().await?,
+        QueueCommand::Help => {
+            cx.answer(QueueCommand::descriptions()).send().await?;
+        }
         QueueCommand::Swap(_, _) => {
             unimplemented!()
         }
         QueueCommand::CreateQueueFromFile => {
-            let chat = da::get_or_create_chat(&conn, chat_id)?;
-            let queue = da::create_new_queue(&conn, cx.update.id as i64, chat.id)?;
+            let chat = repo.get_or_create_chat(chat_id)?;
 
-            match cx.update.document() {
+            match cx
+                .update
+                .reply_to_message()
+                .map(|reply| reply.document())
+                .flatten()
+            {
                 Some(doc) => {
                     let File { file_path, .. } =
                         cx.requester.get_file(doc.file_id.clone()).send().await?;
@@ -69,45 +77,97 @@ async fn answer(
 
                     let str: &str = from_utf8(file_data.as_slice())?;
 
-                    let elems = str
+                    let queue = str
                         .lines()
                         .enumerate()
                         .map(|(i, x)| (i, x.trim()))
-                        .map(|(i, x)| QueueElement {
-                            chat_id: chat.id,
-                            el_name: x.to_string(),
-                            queue_id: queue.id,
+                        .map(|(i, x)| da::QueueElementForQueue {
+                            element_name: x.to_string(),
                             queue_place: i as i32 + 1,
                         })
                         .collect();
 
-                    da::populate_queue(&conn, elems)?;
+                    let shuffled_queue_elems = shuffled_queue(queue);
+
+                    let str_queue = format_queue(shuffled_queue_elems.as_slice());
+                    let Message { id: sent_id, .. } = cx.answer(str_queue).send().await?;
+
+                    let queue = repo.create_new_queue(sent_id as i64, chat.id)?;
+                    repo.insert_filled_queue(queue, shuffled_queue_elems)?;
                 }
                 None => {
-                    cx.answer("Please provide a file.").send().await?;
-                }
-            }
-
-            unimplemented!()
-        }
-        QueueCommand::CreateQueue => {
-            let chat_id = cx.update.chat_id();
-
-            let chat = da::get_chat(&conn, chat_id);
-            match chat {
-                Ok(_chat) => {}
-                Err(_) => {
-                    cx.answer("You must first create add elements.")
+                    cx.answer("Please reply to a message with a file.")
                         .send()
                         .await?;
                 }
             }
+        }
+        QueueCommand::CreateQueue => {
+            let chat_id = cx.update.chat_id();
 
-            unimplemented!()
+            let chat = repo.get_or_create_chat(chat_id)?;
+
+            let prev_queue = repo.get_previous_queue_for_chat(&chat)?;
+            match prev_queue {
+                Some(prev_queue) => {
+                    let selected_queue = match cx
+                        .update
+                        .reply_to_message()
+                        .map(|Message { id, .. }| {
+                            repo.queue_exists(da::Queue {
+                                id: *id as i64,
+                                chat_id: chat.id,
+                            })
+                        })
+                        .transpose()?
+                        .flatten()
+                    {
+                        Some(q) => q,
+                        None => prev_queue,
+                    };
+                    let shuffled_queue_elems = create_queue_based_on(&repo, &selected_queue)?;
+
+                    let str_queue = format_queue(shuffled_queue_elems.as_slice());
+                    let Message { id: sent_id, .. } = cx.answer(str_queue).send().await?;
+
+                    let queue = repo.create_new_queue(sent_id as i64, selected_queue.chat_id)?;
+                    repo.insert_filled_queue(queue, shuffled_queue_elems)?;
+                }
+                None => {
+                    cx.answer("You must first call the file variant in this chat elements.")
+                        .send()
+                        .await?;
+                }
+            }
         }
     };
 
     Ok(())
+}
+
+fn format_queue(queue: &[da::QueueElementForQueue]) -> String {
+    queue
+        .iter()
+        .map(|x| format!("{}) {}", x.queue_place + 1, x.element_name))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn create_queue_based_on(
+    repo: &QueueRepository,
+    queue_model: &da::Queue,
+) -> Result<Vec<da::QueueElementForQueue>, error::Error> {
+    let mut queue = repo.get_elements_for_queue(queue_model)?;
+    Ok(shuffled_queue(queue))
+}
+
+fn shuffled_queue(mut queue: Vec<da::QueueElementForQueue>) -> Vec<da::QueueElementForQueue> {
+    use rand::prelude::*;
+    queue.as_mut_slice().shuffle(&mut rand::rngs::OsRng);
+    for (i, q) in queue.iter_mut().enumerate() {
+        q.queue_place = i as i32;
+    }
+    queue
 }
 
 fn create_bot() -> impl Future {

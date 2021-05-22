@@ -1,6 +1,6 @@
 -- This file should undo anything in `up.sql`
 
-drop table queue_element;
+drop table queue_elements;
 
 drop table queues;
 

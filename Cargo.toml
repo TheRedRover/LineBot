@@ -1,5 +1,5 @@
 [package]
-name = "trade-sleep-tg-bot"
+name = "queue-tg-bot"
 version = "0.1.0"
 edition = "2018"
 
@@ -13,7 +13,9 @@ tokio = { version = "1.5.0", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-stream = "0.1.5"
 futures = "0.3.14"
 warp = "0.3.1"
-diesel = {version = "1.4.6",features = ["postgres"]}
+diesel = { version = "1.4.6", features = ["postgres"] }
+thiserror = "1.0.24"
+rand = { version = "0.8.3", features = ["getrandom"] }
 
 [profile.release]
 lto = true

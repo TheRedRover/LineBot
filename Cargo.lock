@@ -868,6 +868,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "queue-tg-bot"
+version = "0.1.0"
+dependencies = [
+ "diesel",
+ "futures",
+ "log",
+ "pretty_env_logger",
+ "rand 0.8.3",
+ "teloxide",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "warp",
+]
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1415,20 +1431,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9ff14f98b1a4b289c6248a023c1c2fa1491062964e9fed67ab29c4e4da4a052"
 dependencies = [
  "lazy_static",
-]
-
-[[package]]
-name = "trade-sleep-tg-bot"
-version = "0.1.0"
-dependencies = [
- "diesel",
- "futures",
- "log",
- "pretty_env_logger",
- "teloxide",
- "tokio",
- "tokio-stream",
- "warp",
 ]
 
 [[package]]
