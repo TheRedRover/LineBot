@@ -1,24 +1,18 @@
-use core::panic;
 use diesel::prelude::*;
-use diesel::{Connection, PgConnection, QueryDsl};
-use futures::{lock::Mutex, Future};
+use diesel::{PgConnection, QueryDsl};
+
 use models::{Chat, QueueElement};
-use std::net::Ipv4Addr;
-use std::sync::Arc;
-use std::{collections::HashMap, error::Error};
-use std::{env, str::from_utf8};
+
 use teloxide::{
     net::Download,
     prelude::*,
     types::{File, InputFile},
     utils::command::BotCommand,
 };
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use warp::{http::Response, Filter};
 
-use crate::schema;
 use crate::models;
 use crate::models::Queues;
+use crate::schema;
 
 pub fn get_chat(conn: &PgConnection, chat_id: i64) -> Result<models::Chat, diesel::result::Error> {
     use schema::chats::dsl::*;

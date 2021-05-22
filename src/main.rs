@@ -1,30 +1,22 @@
 mod consts;
+mod da;
 mod models;
 mod schema;
-mod da;
 
 #[macro_use]
 extern crate diesel;
 
-use core::panic;
 use diesel::prelude::*;
 use diesel::{Connection, PgConnection, QueryDsl};
-use futures::{lock::Mutex, Future};
-use models::{Chat, QueueElement};
+use futures::Future;
+use models::QueueElement;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
+
 use std::{collections::HashMap, error::Error};
 use std::{env, str::from_utf8};
-use teloxide::{
-    net::Download,
-    prelude::*,
-    types::{File, InputFile},
-    utils::command::BotCommand,
-};
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use warp::{http::Response, Filter};
+use teloxide::{net::Download, prelude::*, types::File, utils::command::BotCommand};
 
-use crate::models::Queues;
+use warp::{http::Response, Filter};
 
 #[tokio::main]
 async fn main() {
@@ -67,8 +59,6 @@ async fn answer(
             unimplemented!()
         }
         QueueCommand::CreateQueueFromFile => {
-            use models::Chat;
-
             let chat = da::get_or_create_chat(&conn, chat_id)?;
             let queue = da::create_new_queue(&conn, cx.update.id as i64, chat.id)?;
 
@@ -109,7 +99,7 @@ async fn answer(
 
             let chat = da::get_chat(&conn, chat_id);
             match chat {
-                Ok(chat) => {}
+                Ok(_chat) => {}
                 Err(_) => {
                     cx.answer("You must first create add elements.")
                         .send()
