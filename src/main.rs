@@ -9,7 +9,7 @@ use da::QueueRepository;
 use diesel::{prelude::*, Connection, PgConnection, QueryDsl};
 use futures::Future;
 use rand;
-use std::{collections::HashMap, env, error::Error, fmt::format, net::Ipv4Addr, str::from_utf8};
+use std::{collections::HashMap, env, error::Error, net::Ipv4Addr, str::from_utf8};
 use teloxide::{net::Download, prelude::*, types::File, utils::command::BotCommand};
 use warp::{http::Response, Filter};
 
