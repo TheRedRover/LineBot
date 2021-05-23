@@ -14,6 +14,7 @@ tokio-stream = "0.1.5"
 futures = "0.3.14"
 warp = "0.3.1"
 diesel = { version = "1.4.6", features = ["postgres"] }
+diesel_migrations = "1.4.0"
 thiserror = "1.0.24"
 rand = { version = "0.8.3", features = ["getrandom"] }
 

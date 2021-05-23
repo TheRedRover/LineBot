@@ -118,4 +118,52 @@ impl QueueRepository {
             },
         )
     }
+
+    pub fn swap_positions_for_queue(
+        &self,
+        queue: &Queue,
+        pos1: i32,
+        pos2: i32,
+    ) -> Result<(), super::error::Error> {
+        use super::error::Error;
+        use schema::queue_elements::dsl::*;
+
+        let pos_filter = |pos| {
+            queue_elements.filter(
+                queue_id
+                    .eq(&queue.id)
+                    .and(chat_id.eq(&queue.chat_id).and(queue_place.eq(pos))),
+            )
+        };
+
+        let f_query = |pos| -> Result<_, Error> {
+            match pos_filter(pos).first::<QueueElement>(&self.conn) {
+                Ok(exists) => Ok(exists),
+                Err(diesel::result::Error::NotFound) => {
+                    return Err(Error::NonexistentPosition { pos });
+                }
+                Err(e) => Err(e)?,
+            }
+        };
+        let pos1 = f_query(pos1)?;
+        let pos2 = f_query(pos2)?;
+
+        self.conn.transaction::<_, Error, _>(|| {
+            diesel::update(pos_filter(pos1.queue_place))
+                .set(queue_place.eq(-1))
+                .execute(&self.conn)?;
+
+            diesel::update(pos_filter(pos2.queue_place))
+                .set(queue_place.eq(pos1.queue_place))
+                .execute(&self.conn)?;
+
+            diesel::update(pos_filter(-1))
+                .set(queue_place.eq(pos2.queue_place))
+                .execute(&self.conn)?;
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
 }

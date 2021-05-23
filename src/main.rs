@@ -9,7 +9,7 @@ use da::QueueRepository;
 use diesel::{prelude::*, Connection, PgConnection, QueryDsl};
 use futures::Future;
 use rand;
-use std::{collections::HashMap, env, error::Error, net::Ipv4Addr, str::from_utf8};
+use std::{collections::HashMap, env, error::Error, fmt::format, net::Ipv4Addr, str::from_utf8};
 use teloxide::{net::Download, prelude::*, types::File, utils::command::BotCommand};
 use warp::{http::Response, Filter};
 
@@ -24,7 +24,7 @@ enum QueueCommand {
     #[command(description = "Obtain help.")]
     Help,
     #[command(description = "Swap positions in the queue.", parse_with = "split")]
-    Swap(u32, u32),
+    Swap(i32, i32),
     #[command(rename = "queue", description = "Create a new queue.")]
     CreateQueue,
     #[command(rename = "queuefile", description = "Create a new queue from a file.")]
@@ -33,8 +33,14 @@ enum QueueCommand {
 
 async fn run() {
     teloxide::enable_logging!();
-    log::info!("Starting the bot...");
 
+    log::info!("Running migrations...");
+
+    let conn = establish_connection();
+    diesel_migrations::run_pending_migrations(&conn)
+        .expect("Migrations should be run successfully.");
+
+    log::info!("Starting the bot...");
     let repl = create_bot();
     let serve = create_http_server();
 
@@ -48,6 +54,7 @@ async fn answer(
     let conn = establish_connection();
     let repo = da::QueueRepository::from_connection(conn);
     let chat_id = cx.update.chat_id();
+    let chat = repo.get_or_create_chat(chat_id)?;
 
     log::info!("Chat: {}; Command: {:?}", chat_id, command);
 
@@ -55,12 +62,49 @@ async fn answer(
         QueueCommand::Help => {
             cx.answer(QueueCommand::descriptions()).send().await?;
         }
-        QueueCommand::Swap(_, _) => {
-            unimplemented!()
+        QueueCommand::Swap(pos1, pos2) => {
+            let reply_queue = cx
+                .update
+                .reply_to_message()
+                .map(|Message { id, .. }| {
+                    repo.queue_exists(da::Queue {
+                        id: *id as i64,
+                        chat_id: chat.id,
+                    })
+                })
+                .transpose()?
+                .flatten();
+            match reply_queue {
+                Some(reply_queue) => {
+                    let swap_res = repo.swap_positions_for_queue(&reply_queue, pos1, pos2);
+                    match swap_res {
+                        Ok(_) => {
+                            let queue = repo.get_elements_for_queue(&reply_queue)?;
+                            let str_queue = format_queue(queue.as_slice());
+
+                            cx.requester
+                                .edit_message_text(chat.id, reply_queue.id as i32, str_queue)
+                                .send()
+                                .await?;
+                        }
+                        Err(da::Error::NonexistentPosition { pos }) => {
+                            cx.answer(format!("Nonexistent position: {}", pos))
+                                .send()
+                                .await?;
+                        }
+                        e => e?,
+                    }
+                }
+                None => {
+                    cx.answer(
+                        "You must reply to a queue created by this bot for this command to work.",
+                    )
+                    .send()
+                    .await?;
+                }
+            };
         }
         QueueCommand::CreateQueueFromFile => {
-            let chat = repo.get_or_create_chat(chat_id)?;
-
             match cx
                 .update
                 .reply_to_message()
@@ -83,7 +127,7 @@ async fn answer(
                         .map(|(i, x)| (i, x.trim()))
                         .map(|(i, x)| da::QueueElementForQueue {
                             element_name: x.to_string(),
-                            queue_place: i as i32 + 1,
+                            queue_place: i as i32,
                         })
                         .collect();
 
@@ -103,10 +147,6 @@ async fn answer(
             }
         }
         QueueCommand::CreateQueue => {
-            let chat_id = cx.update.chat_id();
-
-            let chat = repo.get_or_create_chat(chat_id)?;
-
             let prev_queue = repo.get_previous_queue_for_chat(&chat)?;
             match prev_queue {
                 Some(prev_queue) => {
@@ -148,7 +188,7 @@ async fn answer(
 fn format_queue(queue: &[da::QueueElementForQueue]) -> String {
     queue
         .iter()
-        .map(|x| format!("{}) {}", x.queue_place + 1, x.element_name))
+        .map(|x| format!("{}) {}", x.queue_place, x.element_name))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -165,7 +205,7 @@ fn shuffled_queue(mut queue: Vec<da::QueueElementForQueue>) -> Vec<da::QueueElem
     use rand::prelude::*;
     queue.as_mut_slice().shuffle(&mut rand::rngs::OsRng);
     for (i, q) in queue.iter_mut().enumerate() {
-        q.queue_place = i as i32;
+        q.queue_place = i as i32 + 1;
     }
     queue
 }
