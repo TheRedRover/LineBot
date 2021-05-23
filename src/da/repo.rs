@@ -2,12 +2,6 @@ use diesel::{prelude::*, PgConnection, QueryDsl};
 
 use super::models::{self, Chat, Queue, QueueElement, QueueElementForQueue};
 use super::schema;
-use teloxide::{
-    net::Download,
-    prelude::*,
-    types::{File, InputFile},
-    utils::command::BotCommand,
-};
 
 pub struct QueueRepository {
     conn: PgConnection,
