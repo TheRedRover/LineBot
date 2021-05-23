@@ -6,7 +6,7 @@ mod error;
 extern crate diesel;
 
 use da::QueueRepository;
-use diesel::{prelude::*, Connection, PgConnection, QueryDsl};
+use diesel::{Connection, PgConnection};
 use futures::Future;
 use rand;
 use std::{collections::HashMap, env, error::Error, net::Ipv4Addr, str::from_utf8};
@@ -79,13 +79,32 @@ async fn answer(
                     let swap_res = repo.swap_positions_for_queue(&reply_queue, pos1, pos2);
                     match swap_res {
                         Ok(_) => {
-                            let queue = repo.get_elements_for_queue(&reply_queue)?;
+                            let queue: Vec<da::QueueElementForQueue> =
+                                repo.get_elements_for_queue(&reply_queue)?;
                             let str_queue = format_queue(queue.as_slice());
 
                             cx.requester
                                 .edit_message_text(chat.id, reply_queue.id as i32, str_queue)
                                 .send()
                                 .await?;
+
+                            let pos1_name = &queue
+                                .iter()
+                                .find(|x| x.queue_place == pos1)
+                                .unwrap()
+                                .element_name;
+                            let pos2_name = &queue
+                                .iter()
+                                .find(|x| x.queue_place == pos2)
+                                .unwrap()
+                                .element_name;
+
+                            let mut answ = cx.answer(format!(
+                                "Swapped {} ({}) and {} ({})",
+                                pos2_name, pos1, pos1_name, pos2
+                            ));
+                            answ.reply_to_message_id = Some(cx.update.id);
+                            answ.send().await?;
                         }
                         Err(da::Error::NonexistentPosition { pos }) => {
                             cx.answer(format!("Nonexistent position: {}", pos))
