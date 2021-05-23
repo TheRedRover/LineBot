@@ -1,8 +1,8 @@
+mod error;
 mod models;
 mod repo;
 mod schema;
-mod error;
 
+pub use error::Error;
 pub use models::*;
 pub use repo::*;
-pub use error::Error;
