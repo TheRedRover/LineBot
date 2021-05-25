@@ -34,9 +34,10 @@ enum QueueCommand {
 async fn run() {
     teloxide::enable_logging!();
 
-    log::info!("Running migrations...");
-
+    log::info!("Connecting to the database...");
     let conn = establish_connection();
+
+    log::info!("Running migrations...");
     diesel_migrations::run_pending_migrations(&conn)
         .expect("Migrations should be run successfully.");
 
