@@ -7,3 +7,5 @@ pub enum Error {
     #[error("Nonexistent position for swap.")]
     NonexistentPosition { pos: i32 },
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

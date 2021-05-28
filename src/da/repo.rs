@@ -160,4 +160,79 @@ impl QueueRepository {
 
         Ok(())
     }
+
+    pub fn insert_new_elem(
+        &self,
+        queue: &Queue,
+        name: String,
+        index: Option<i32>,
+    ) -> super::error::Result<()> {
+        use super::error::Error;
+        use diesel::dsl::*;
+        use schema::queue_elements as qe;
+
+        let index: i32 = index
+            .map(|x| Ok(Some(x)))
+            .unwrap_or_else(|| -> Result<Option<i32>, diesel::result::Error> {
+                Ok(qe::table
+                    .filter(
+                        qe::queue_id
+                            .eq(queue.id)
+                            .and(qe::chat_id.eq(&queue.chat_id)),
+                    )
+                    .select(max(qe::queue_place))
+                    .first(&self.conn)?)
+            })?
+            .unwrap_or(0);
+
+        self.conn.transaction::<_, Error, _>(|| {
+            diesel::update(
+                qe::table.filter(
+                    qe::queue_id
+                        .eq(queue.id)
+                        .and(qe::chat_id.eq(&queue.chat_id))
+                        .and(qe::queue_place.ge(index)),
+                ),
+            )
+            .set(qe::queue_place.eq(qe::queue_place + 1))
+            .execute(&self.conn)?;
+
+            diesel::insert_into(qe::table)
+                .values(QueueElement {
+                    element_name: name,
+                    queue_id: queue.id,
+                    chat_id: queue.chat_id,
+                    queue_place: index,
+                })
+                .execute(&self.conn)?;
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    pub fn remove_elem(&self, queue: &Queue, index: i32) -> super::error::Result<()> {
+        use super::error::Error;
+        use schema::queue_elements as qe;
+
+        self.conn.transaction::<_, Error, _>(|| {
+            diesel::delete(qe::table.filter(qe::queue_place.eq(index))).execute(&self.conn)?;
+
+            diesel::update(
+                qe::table.filter(
+                    qe::queue_id
+                        .eq(queue.id)
+                        .and(qe::chat_id.eq(&queue.chat_id))
+                        .and(qe::queue_place.ge(index)),
+                ),
+            )
+            .set(qe::queue_place.eq(qe::queue_place - 1))
+            .execute(&self.conn)?;
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
 }
