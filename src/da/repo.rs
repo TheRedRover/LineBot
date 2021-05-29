@@ -1,6 +1,6 @@
 use diesel::{prelude::*, PgConnection, QueryDsl};
 
-use super::models::{self, Chat, Queue, QueueElement, QueueElementForQueue,QueueKey};
+use super::models::{self, Chat, Queue, QueueElement, QueueElementForQueue, QueueKey};
 use super::schema;
 
 pub struct QueueRepository {
@@ -174,7 +174,7 @@ impl QueueRepository {
                 "Tried to unwrap but there was no value? How?".to_string(),
             ))?;
 
-        self.conn.transaction::<_, Error, _>(|| {
+        self.conn.transaction(|| -> Result<_, Error> {
             diesel::update(
                 qe::table.filter(
                     qe::queue_id
@@ -238,5 +238,21 @@ impl QueueRepository {
         })?;
 
         Ok(deleted_name)
+    }
+
+    pub fn set_queue_name(
+        &self,
+        queue: &QueueKey,
+        new_name: String,
+    ) -> super::error::Result<String> {
+        use super::error::Error;
+        use schema::queues as q;
+
+        let new_name: Option<_> =
+            diesel::update(q::table.filter(q::chat_id.eq(queue.chat_id).and(q::id.eq(queue.id))))
+                .set(q::qname.eq(new_name))
+                .returning(q::qname)
+                .get_result(&self.conn)?;
+        Ok(new_name.unwrap())
     }
 }

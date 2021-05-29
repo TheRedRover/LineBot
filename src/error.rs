@@ -13,6 +13,8 @@ pub enum Error {
     TeloxideDonload(#[from] teloxide::DownloadError),
     #[error("Invalid UTF")]
     UTF(#[from] Utf8Error),
+    #[error("No queue reply.")]
+    NoQueueReply
 }
 
 pub type Result<T> = result::Result<T, Error>;
