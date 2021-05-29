@@ -187,44 +187,45 @@ pub struct CommandHandler<'a> {
 impl CommandHandler<'_> {
     pub async fn random_queue(self) -> error::Result<()> {
         let prev_queue = self.repo.get_previous_queue_for_chat(&self.chat)?;
-        match prev_queue {
-            Some(prev_queue) => {
-                let selected_queue = match self
-                    .cx
-                    .update
-                    .reply_to_message()
-                    .map(|Message { id, .. }| {
-                        self.repo.queue_exists(da::Queue {
-                            id: *id as i64,
-                            chat_id: self.chat.id,
-                        })
-                    })
-                    .transpose()?
-                    .flatten()
-                {
-                    Some(q) => q,
-                    None => prev_queue,
-                };
-
-                let queue = self.repo.get_elements_for_queue(&selected_queue)?;
-                let shuffled_queue_elems = shuffled_queue(queue);
-
-                let str_queue = format_queue(shuffled_queue_elems.as_slice());
-                let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
-
-                let queue = self
-                    .repo
-                    .create_new_queue(sent_id as i64, selected_queue.chat_id)?;
-                self.repo.insert_filled_queue(queue, shuffled_queue_elems)?;
-            }
+        let prev_queue = match prev_queue {
+            Some(prev_queue) => prev_queue,
             None => {
                 self.cx
                     .answer("You must first call the file variant in this chat elements.")
                     .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
+                return Ok(());
             }
-        }
+        };
+
+        let selected_queue = match self
+            .cx
+            .update
+            .reply_to_message()
+            .map(|Message { id, .. }| {
+                self.repo.queue_exists(da::Queue {
+                    id: *id as i64,
+                    chat_id: self.chat.id,
+                })
+            })
+            .transpose()?
+            .flatten()
+        {
+            Some(q) => q,
+            None => prev_queue,
+        };
+
+        let queue = self.repo.get_elements_for_queue(&selected_queue)?;
+        let shuffled_queue_elems = shuffled_queue(queue);
+
+        let str_queue = format_queue(shuffled_queue_elems.as_slice());
+        let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
+
+        let queue = self
+            .repo
+            .create_new_queue(sent_id as i64, selected_queue.chat_id)?;
+        self.repo.insert_filled_queue(queue, shuffled_queue_elems)?;
         Ok(())
     }
 
@@ -343,52 +344,53 @@ impl CommandHandler<'_> {
     }
 
     pub async fn queue_from_file(self) -> error::Result<()> {
-        match self
+        let doc = match self
             .cx
             .update
             .reply_to_message()
             .map(|reply| reply.document())
             .flatten()
         {
-            Some(doc) => {
-                let File { file_path, .. } = self
-                    .cx
-                    .requester
-                    .get_file(doc.file_id.clone())
-                    .send()
-                    .await?;
-                let mut file_data = Vec::new();
-                self.cx
-                    .requester
-                    .download_file(&file_path, &mut file_data)
-                    .await?;
-
-                let str: &str = from_utf8(file_data.as_slice())?;
-
-                let queue_elems = str
-                    .lines()
-                    .enumerate()
-                    .map(|(i, x)| (i + 1, x.trim()))
-                    .map(|(i, x)| da::QueueElementForQueue {
-                        element_name: x.to_string(),
-                        queue_place: i as i32,
-                    })
-                    .collect::<Vec<_>>();
-
-                let str_queue = format_queue(queue_elems.as_slice());
-                let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
-
-                let queue = self.repo.create_new_queue(sent_id as i64, self.chat.id)?;
-                self.repo.insert_filled_queue(queue, queue_elems)?;
-            }
+            Some(doc) => doc,
             None => {
                 self.cx
                     .answer("Please reply to a message with a file.")
                     .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
+                return Ok(());
             }
-        }
+        };
+
+        let File { file_path, .. } = self
+            .cx
+            .requester
+            .get_file(doc.file_id.clone())
+            .send()
+            .await?;
+        let mut file_data = Vec::new();
+        self.cx
+            .requester
+            .download_file(&file_path, &mut file_data)
+            .await?;
+
+        let str: &str = from_utf8(file_data.as_slice())?;
+
+        let queue_elems = str
+            .lines()
+            .enumerate()
+            .map(|(i, x)| (i + 1, x.trim()))
+            .map(|(i, x)| da::QueueElementForQueue {
+                element_name: x.to_string(),
+                queue_place: i as i32,
+            })
+            .collect::<Vec<_>>();
+
+        let str_queue = format_queue(queue_elems.as_slice());
+        let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
+
+        let queue = self.repo.create_new_queue(sent_id as i64, self.chat.id)?;
+        self.repo.insert_filled_queue(queue, queue_elems)?;
         Ok(())
     }
 
@@ -414,51 +416,8 @@ impl CommandHandler<'_> {
             })
             .transpose()?
             .flatten();
-        match reply_queue {
-            Some(reply_queue) => {
-                let swap_res = self.repo.swap_positions_for_queue(&reply_queue, pos1, pos2);
-                match swap_res {
-                    Ok(_) => {
-                        let queue: Vec<da::QueueElementForQueue> =
-                            self.repo.get_elements_for_queue(&reply_queue)?;
-                        let str_queue = format_queue(queue.as_slice());
-
-                        self.cx
-                            .requester
-                            .edit_message_text(self.chat.id, reply_queue.id as i32, str_queue)
-                            .send()
-                            .await?;
-
-                        let pos1_name = &queue
-                            .iter()
-                            .find(|x| x.queue_place == pos1)
-                            .unwrap()
-                            .element_name;
-                        let pos2_name = &queue
-                            .iter()
-                            .find(|x| x.queue_place == pos2)
-                            .unwrap()
-                            .element_name;
-
-                        self.cx
-                            .answer(format!(
-                                "Swapped {} ({}) and {} ({})",
-                                pos2_name, pos1, pos1_name, pos2
-                            ))
-                            .reply_to_message_id(self.cx.update.id)
-                            .send()
-                            .await?;
-                    }
-                    Err(da::Error::NonexistentPosition { pos }) => {
-                        self.cx
-                            .answer(format!("Nonexistent position: {}", pos))
-                            .reply_to_message_id(self.cx.update.id)
-                            .send()
-                            .await?;
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            }
+        let reply_queue = match reply_queue {
+            Some(reply_queue) => reply_queue,
             None => {
                 self.cx
                     .answer(
@@ -467,8 +426,54 @@ impl CommandHandler<'_> {
                     .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
+                return Ok(());
             }
+        };
+
+        let swap_res = self.repo.swap_positions_for_queue(&reply_queue, pos1, pos2);
+        match swap_res {
+            Ok(_) => {}
+            Err(da::Error::NonexistentPosition { pos }) => {
+                self.cx
+                    .answer(format!("Nonexistent position: {}", pos))
+                    .reply_to_message_id(self.cx.update.id)
+                    .send()
+                    .await?;
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
         }
+
+        let queue: Vec<da::QueueElementForQueue> =
+            self.repo.get_elements_for_queue(&reply_queue)?;
+        let str_queue = format_queue(queue.as_slice());
+
+        self.cx
+            .requester
+            .edit_message_text(self.chat.id, reply_queue.id as i32, str_queue)
+            .send()
+            .await?;
+
+        let pos1_name = &queue
+            .iter()
+            .find(|x| x.queue_place == pos1)
+            .unwrap()
+            .element_name;
+        let pos2_name = &queue
+            .iter()
+            .find(|x| x.queue_place == pos2)
+            .unwrap()
+            .element_name;
+
+        self.cx
+            .answer(format!(
+                "Swapped {} ({}) and {} ({})",
+                pos2_name, pos1, pos1_name, pos2
+            ))
+            .reply_to_message_id(self.cx.update.id)
+            .send()
+            .await?;
+
         Ok(())
     }
 }
