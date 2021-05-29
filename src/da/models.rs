@@ -1,19 +1,35 @@
 use super::schema::*;
 
-#[derive(Queryable, Insertable, Clone)]
+#[derive(Queryable, Insertable, Clone, Debug)]
 #[table_name = "chats"]
 pub struct Chat {
     pub id: i64,
 }
 
-#[derive(Queryable, Insertable, Clone)]
+#[derive(Queryable, Insertable, Clone, Debug)]
 #[table_name = "queues"]
 pub struct Queue {
     pub id: i64,
     pub chat_id: i64,
+    pub qname: Option<String>,
 }
 
-#[derive(Queryable, Insertable, Clone)]
+impl Queue {
+    pub fn key(&self) -> QueueKey {
+        QueueKey {
+            id: self.id,
+            chat_id: self.chat_id,
+        }
+    }
+}
+
+#[derive(Queryable, Clone, Debug)]
+pub struct QueueKey {
+    pub id: i64,
+    pub chat_id: i64,
+}
+
+#[derive(Queryable, Insertable, Clone, Debug)]
 #[table_name = "queue_elements"]
 pub struct QueueElement {
     pub element_name: String,
@@ -23,7 +39,7 @@ pub struct QueueElement {
 }
 
 impl QueueElement {
-    pub fn from_parts(queue: Queue, element: QueueElementForQueue) -> Self {
+    pub fn from_parts(queue: QueueKey, element: QueueElementForQueue) -> Self {
         QueueElement {
             element_name: element.element_name,
             queue_id: queue.id,
@@ -33,7 +49,7 @@ impl QueueElement {
     }
 }
 
-#[derive(Queryable, Clone)]
+#[derive(Queryable, Clone, Debug)]
 pub struct QueueElementForQueue {
     pub element_name: String,
     pub queue_place: i32,

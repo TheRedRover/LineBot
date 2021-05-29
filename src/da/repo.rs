@@ -1,6 +1,6 @@
 use diesel::{prelude::*, PgConnection, QueryDsl};
 
-use super::models::{self, Chat, Queue, QueueElement, QueueElementForQueue};
+use super::models::{self, Chat, Queue, QueueElement, QueueElementForQueue,QueueKey};
 use super::schema;
 
 pub struct QueueRepository {
@@ -17,17 +17,17 @@ impl QueueRepository {
         Ok(chats.filter(id.eq(chat_id)).first::<Chat>(&self.conn)?)
     }
 
-    pub fn create_new_queue(&self, id: i64, chat_id: i64) -> super::error::Result<models::Queue> {
+    pub fn create_new_queue(&self, queue: Queue) -> super::error::Result<models::Queue> {
         use schema::queues::dsl::queues;
 
         Ok(diesel::insert_into(queues)
-            .values(Queue { id, chat_id })
+            .values(queue)
             .get_result(&self.conn)?)
     }
 
     pub fn insert_filled_queue(
         &self,
-        queue: Queue,
+        queue: QueueKey,
         queue_elems: Vec<QueueElementForQueue>,
     ) -> super::error::Result<Vec<QueueElement>> {
         use schema::queue_elements::dsl::*;
@@ -54,7 +54,7 @@ impl QueueRepository {
 
     pub fn get_elements_for_queue(
         &self,
-        queue: &Queue,
+        queue: &QueueKey,
     ) -> super::error::Result<Vec<QueueElementForQueue>> {
         use queue_elements as qe;
         use schema::*;
@@ -85,7 +85,7 @@ impl QueueRepository {
             .optional()?)
     }
 
-    pub fn queue_exists(&self, queue: Queue) -> super::error::Result<Option<Queue>> {
+    pub fn queue_exists(&self, queue: QueueKey) -> super::error::Result<Option<Queue>> {
         use schema::queues::dsl::*;
 
         Ok(
@@ -102,7 +102,7 @@ impl QueueRepository {
 
     pub fn swap_positions_for_queue(
         &self,
-        queue: &Queue,
+        queue: &QueueKey,
         pos1: i32,
         pos2: i32,
     ) -> Result<(), super::error::Error> {
@@ -150,7 +150,7 @@ impl QueueRepository {
 
     pub fn insert_new_elem(
         &self,
-        queue: &Queue,
+        queue: &QueueKey,
         name: String,
         index: Option<i32>,
     ) -> super::error::Result<()> {
@@ -201,7 +201,7 @@ impl QueueRepository {
         Ok(())
     }
 
-    pub fn remove_elem(&self, queue: &Queue, index: i32) -> super::error::Result<String> {
+    pub fn remove_elem(&self, queue: &QueueKey, index: i32) -> super::error::Result<String> {
         use super::error::Error;
         use schema::queue_elements as qe;
 

@@ -36,18 +36,20 @@ enum QueueCommand {
     Swap(i32, i32),
     #[command(
         rename = "queuerand",
-        description = "Create a new queue from another queue with shuffling."
+        description = "Create a new queue from another queue with shuffling. Syntax: <b>/queuerand</b> <u>[qname]</u>.",
+        parse_with = "accept_string_opt"
     )]
-    RandomQueue,
+    RandomQueue(Option<String>),
     #[command(
         rename = "queuefile",
-        description = "Create a new queue from a file without shuffling."
+        description = "Create a new queue from a file without shuffling. Syntax: <b>/queuefile</b> <u>[qname]</u>.",
+        parse_with = "accept_string_opt"
     )]
-    CreateQueueFromFile,
+    CreateQueueFromFile(Option<String>),
     #[command(
         rename = "insert",
-        description = "Add an element to a queue. Syntax: <b>/insert</b> <u>name</u> <u>[^place]</u>. 
-    If place isn't provided then inserts to the end of a queue.",
+        description = "Add an element to a queue. Syntax: <b>/insert</b> <u>name</u> <u>[^place]</u>. \
+                       If place isn't provided then inserts to the end of a queue.",
         parse_with = "accept_string_and_number"
     )]
     Insert(String, Option<i32>),
@@ -71,6 +73,20 @@ fn accept_string_and_number(input: String) -> Result<(String, Option<i32>), Pars
         (Some(s), None) => Ok((s.to_string(), None)),
         _ => Err(ParseError::Custom("Incorrect arguments".into())),
     }
+}
+
+fn accept_string_opt(input: String) -> Result<(Option<String>,), ParseError> {
+    let trim = input.trim();
+    Ok(if trim.len() == 0 {
+        (None,)
+    } else {
+        // optimize allocations
+        if trim.len() != input.len() {
+            (Some(trim.to_string()),)
+        } else {
+            (Some(input),)
+        }
+    })
 }
 
 async fn run() {
@@ -114,11 +130,11 @@ async fn answer(cx: UpdateWithCx<Bot, Message>, command: QueueCommand) -> error:
         QueueCommand::Swap(pos1, pos2) => {
             command_handler.swap(pos1, pos2).await?;
         }
-        QueueCommand::CreateQueueFromFile => {
-            command_handler.queue_from_file().await?;
+        QueueCommand::CreateQueueFromFile(name) => {
+            command_handler.queue_from_file(name).await?;
         }
-        QueueCommand::RandomQueue => {
-            command_handler.random_queue().await?;
+        QueueCommand::RandomQueue(name) => {
+            command_handler.random_queue(name).await?;
         }
         QueueCommand::Insert(name, index) => {
             command_handler.insert(name, index).await?;
@@ -131,12 +147,19 @@ async fn answer(cx: UpdateWithCx<Bot, Message>, command: QueueCommand) -> error:
     Ok(())
 }
 
-fn format_queue(queue: &[da::QueueElementForQueue]) -> String {
-    queue
+fn format_queue(queue_name: Option<&str>, queue_elems: &[da::QueueElementForQueue]) -> String {
+    let elem = queue_elems
         .iter()
         .map(|x| format!("{}) {}", x.queue_place, x.element_name))
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+
+    match queue_name {
+        Some(n) => {
+            format!("{}\n{}", n, elem)
+        }
+        None => elem,
+    }
 }
 
 fn shuffled_queue(mut queue: Vec<da::QueueElementForQueue>) -> Vec<da::QueueElementForQueue> {
@@ -185,7 +208,7 @@ pub struct CommandHandler<'a> {
 }
 
 impl CommandHandler<'_> {
-    pub async fn random_queue(self) -> error::Result<()> {
+    pub async fn random_queue(self, name: Option<String>) -> error::Result<()> {
         let prev_queue = self.repo.get_previous_queue_for_chat(&self.chat)?;
         let prev_queue = match prev_queue {
             Some(prev_queue) => prev_queue,
@@ -204,7 +227,7 @@ impl CommandHandler<'_> {
             .update
             .reply_to_message()
             .map(|Message { id, .. }| {
-                self.repo.queue_exists(da::Queue {
+                self.repo.queue_exists(da::QueueKey {
                     id: *id as i64,
                     chat_id: self.chat.id,
                 })
@@ -216,16 +239,22 @@ impl CommandHandler<'_> {
             None => prev_queue,
         };
 
-        let queue = self.repo.get_elements_for_queue(&selected_queue)?;
+        let queue = self.repo.get_elements_for_queue(&selected_queue.key())?;
         let shuffled_queue_elems = shuffled_queue(queue);
 
-        let str_queue = format_queue(shuffled_queue_elems.as_slice());
+        let str_queue = format_queue(
+            name.as_ref().map(|x| x.as_str()),
+            shuffled_queue_elems.as_slice(),
+        );
         let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
 
-        let queue = self
-            .repo
-            .create_new_queue(sent_id as i64, selected_queue.chat_id)?;
-        self.repo.insert_filled_queue(queue, shuffled_queue_elems)?;
+        let queue = self.repo.create_new_queue(da::Queue {
+            id: sent_id as i64,
+            chat_id: selected_queue.chat_id,
+            qname: name,
+        })?;
+        self.repo
+            .insert_filled_queue(queue.key(), shuffled_queue_elems)?;
         Ok(())
     }
 
@@ -235,7 +264,7 @@ impl CommandHandler<'_> {
             .update
             .reply_to_message()
             .map(|Message { id, .. }| {
-                self.repo.queue_exists(da::Queue {
+                self.repo.queue_exists(da::QueueKey {
                     id: *id as i64,
                     chat_id: self.chat.id,
                 })
@@ -257,11 +286,14 @@ impl CommandHandler<'_> {
         };
 
         self.repo
-            .insert_new_elem(&reply_queue, name.clone(), index)?;
+            .insert_new_elem(&reply_queue.key(), name.clone(), index)?;
 
-        let queue_elem = self.repo.get_elements_for_queue(&reply_queue)?;
+        let queue_elem = self.repo.get_elements_for_queue(&reply_queue.key())?;
 
-        let str_queue = format_queue(queue_elem.as_slice());
+        let str_queue = format_queue(
+            reply_queue.qname.as_ref().map(|x| x.as_str()),
+            queue_elem.as_slice(),
+        );
 
         self.cx
             .requester
@@ -290,7 +322,7 @@ impl CommandHandler<'_> {
             .update
             .reply_to_message()
             .map(|Message { id, .. }| {
-                self.repo.queue_exists(da::Queue {
+                self.repo.queue_exists(da::QueueKey {
                     id: *id as i64,
                     chat_id: self.chat.id,
                 })
@@ -311,7 +343,7 @@ impl CommandHandler<'_> {
             }
         };
 
-        let remove_res = self.repo.remove_elem(&reply_queue, index);
+        let remove_res = self.repo.remove_elem(&reply_queue.key(), index);
         let removed_name = match remove_res {
             Ok(name) => name,
             Err(da::Error::NonexistentPosition { pos }) => {
@@ -325,8 +357,11 @@ impl CommandHandler<'_> {
             Err(e) => return Err(e.into()),
         };
 
-        let queue_elem = self.repo.get_elements_for_queue(&reply_queue)?;
-        let str_queue = format_queue(queue_elem.as_slice());
+        let queue_elem = self.repo.get_elements_for_queue(&reply_queue.key())?;
+        let str_queue = format_queue(
+            reply_queue.qname.as_ref().map(|x| x.as_str()),
+            queue_elem.as_slice(),
+        );
 
         self.cx
             .requester
@@ -343,7 +378,7 @@ impl CommandHandler<'_> {
         Ok(())
     }
 
-    pub async fn queue_from_file(self) -> error::Result<()> {
+    pub async fn queue_from_file(self, name: Option<String>) -> error::Result<()> {
         let doc = match self
             .cx
             .update
@@ -386,11 +421,15 @@ impl CommandHandler<'_> {
             })
             .collect::<Vec<_>>();
 
-        let str_queue = format_queue(queue_elems.as_slice());
+        let str_queue = format_queue(name.as_ref().map(|x| x.as_str()), queue_elems.as_slice());
         let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
 
-        let queue = self.repo.create_new_queue(sent_id as i64, self.chat.id)?;
-        self.repo.insert_filled_queue(queue, queue_elems)?;
+        let queue = self.repo.create_new_queue(da::Queue {
+            id: sent_id as i64,
+            chat_id: self.chat.id,
+            qname: name,
+        })?;
+        self.repo.insert_filled_queue(queue.key(), queue_elems)?;
         Ok(())
     }
 
@@ -409,7 +448,7 @@ impl CommandHandler<'_> {
             .update
             .reply_to_message()
             .map(|Message { id, .. }| {
-                self.repo.queue_exists(da::Queue {
+                self.repo.queue_exists(da::QueueKey {
                     id: *id as i64,
                     chat_id: self.chat.id,
                 })
@@ -430,7 +469,9 @@ impl CommandHandler<'_> {
             }
         };
 
-        let swap_res = self.repo.swap_positions_for_queue(&reply_queue, pos1, pos2);
+        let swap_res = self
+            .repo
+            .swap_positions_for_queue(&reply_queue.key(), pos1, pos2);
         match swap_res {
             Ok(_) => {}
             Err(da::Error::NonexistentPosition { pos }) => {
@@ -445,8 +486,11 @@ impl CommandHandler<'_> {
         }
 
         let queue: Vec<da::QueueElementForQueue> =
-            self.repo.get_elements_for_queue(&reply_queue)?;
-        let str_queue = format_queue(queue.as_slice());
+            self.repo.get_elements_for_queue(&reply_queue.key())?;
+        let str_queue = format_queue(
+            reply_queue.qname.as_ref().map(|x| x.as_str()),
+            queue.as_slice(),
+        );
 
         self.cx
             .requester
