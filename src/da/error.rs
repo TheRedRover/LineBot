@@ -7,7 +7,7 @@ pub enum Error {
     #[error("Nonexistent position for swap.")]
     NonexistentPosition { pos: i32 },
     #[error("Something unexpected.")]
-    Wtf(String)
+    Wtf(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

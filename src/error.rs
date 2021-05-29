@@ -14,7 +14,7 @@ pub enum Error {
     #[error("Invalid UTF")]
     UTF(#[from] Utf8Error),
     #[error("No queue reply.")]
-    NoQueueReply
+    NoQueueReply,
 }
 
 pub type Result<T> = result::Result<T, Error>;
