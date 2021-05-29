@@ -228,7 +228,7 @@ impl CommandHandler<'_> {
             Some(prev_queue) => prev_queue,
             None => {
                 self.cx
-                    .answer("You must first call the file variant in this chat elements.")
+                    .answer("You must first call the file variant in this chat.")
                     .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
