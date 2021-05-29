@@ -30,7 +30,7 @@ enum QueueCommand {
     #[command(description = "Obtain help.")]
     Help,
     #[command(
-        description = "Swap positions in the queue. Syntax: <b>/swap</b> <u>queue_place1</u> <u>queue_place2</u>",
+        description = "Swap positions in the queue. Syntax: <b>/swap</b> <u>place</u> <u>place</u>",
         parse_with = "split"
     )]
     Swap(i32, i32),
@@ -46,20 +46,20 @@ enum QueueCommand {
     CreateQueueFromFile,
     #[command(
         rename = "insert",
-        description = "Add an element to a queue. Syntax: <b>/insert</b> <u>name</u> <u>[@queue_place]</u>. 
-    If queue_place isn't provided then inserts to the end of a queue.",
+        description = "Add an element to a queue. Syntax: <b>/insert</b> <u>name</u> <u>[^place]</u>. 
+    If place isn't provided then inserts to the end of a queue.",
         parse_with = "accept_string_and_number"
     )]
     Insert(String, Option<i32>),
     #[command(
         rename = "remove",
-        description = "Remove an element from a queue. Syntax: <b>/remove</b> <u>queue_place</u>"
+        description = "Remove an element from a queue. Syntax: <b>/remove</b> <u>place</u>"
     )]
     Remove(i32),
 }
 
 fn accept_string_and_number(input: String) -> Result<(String, Option<i32>), ParseError> {
-    let mut split = input.split("@");
+    let mut split = input.split("^");
     let string = split.next().map(|x| x.trim());
     let number = split.next().map(|x| x.trim());
 
@@ -90,10 +90,7 @@ async fn run() {
     tokio::join!(repl, serve);
 }
 
-async fn answer(
-    cx: UpdateWithCx<Bot, Message>,
-    command: QueueCommand,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn answer(cx: UpdateWithCx<Bot, Message>, command: QueueCommand) -> error::Result<()> {
     let conn = establish_connection();
     let repo = da::QueueRepository::from_connection(conn);
     let chat_id = cx.update.chat_id();
@@ -110,6 +107,7 @@ async fn answer(
         QueueCommand::Help => {
             cx.answer(QueueCommand::descriptions())
                 .parse_mode(teloxide::types::ParseMode::Html)
+                .reply_to_message_id(cx.update.id)
                 .send()
                 .await?;
         }
@@ -139,14 +137,6 @@ fn format_queue(queue: &[da::QueueElementForQueue]) -> String {
         .map(|x| format!("{}) {}", x.queue_place, x.element_name))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn create_queue_based_on(
-    repo: &QueueRepository,
-    queue_model: &da::Queue,
-) -> Result<Vec<da::QueueElementForQueue>, error::Error> {
-    let queue = repo.get_elements_for_queue(queue_model)?;
-    Ok(shuffled_queue(queue))
 }
 
 fn shuffled_queue(mut queue: Vec<da::QueueElementForQueue>) -> Vec<da::QueueElementForQueue> {
@@ -215,7 +205,9 @@ impl CommandHandler<'_> {
                     Some(q) => q,
                     None => prev_queue,
                 };
-                let shuffled_queue_elems = create_queue_based_on(&self.repo, &selected_queue)?;
+
+                let queue = self.repo.get_elements_for_queue(&selected_queue)?;
+                let shuffled_queue_elems = shuffled_queue(queue);
 
                 let str_queue = format_queue(shuffled_queue_elems.as_slice());
                 let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
@@ -228,6 +220,7 @@ impl CommandHandler<'_> {
             None => {
                 self.cx
                     .answer("You must first call the file variant in this chat elements.")
+                    .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
             }
@@ -248,17 +241,45 @@ impl CommandHandler<'_> {
             })
             .transpose()?
             .flatten();
-        match reply_queue {
-            Some(q) => {}
+        let reply_queue = match reply_queue {
+            Some(q) => q,
             None => {
                 self.cx
                     .answer(
                         "You must reply to a queue created by this bot for this command to work.",
                     )
+                    .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
+                return Ok(());
             }
         };
+
+        self.repo
+            .insert_new_elem(&reply_queue, name.clone(), index)?;
+
+        let queue_elem = self.repo.get_elements_for_queue(&reply_queue)?;
+
+        let str_queue = format_queue(queue_elem.as_slice());
+
+        self.cx
+            .requester
+            .edit_message_text(self.chat.id, reply_queue.id as i32, str_queue)
+            .send()
+            .await?;
+
+        self.cx
+            .answer(format!(
+                "Inserted {} at {}",
+                name,
+                index
+                    .map(|x| x.to_string())
+                    .unwrap_or("the last position".to_string())
+            ))
+            .reply_to_message_id(self.cx.update.id)
+            .send()
+            .await?;
+
         Ok(())
     }
 
@@ -275,17 +296,49 @@ impl CommandHandler<'_> {
             })
             .transpose()?
             .flatten();
-        match reply_queue {
-            Some(q) => {}
+        let reply_queue = match reply_queue {
+            Some(q) => q,
             None => {
                 self.cx
                     .answer(
                         "You must reply to a queue created by this bot for this command to work.",
                     )
+                    .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
+                return Ok(());
             }
         };
+
+        let remove_res = self.repo.remove_elem(&reply_queue, index);
+        let removed_name = match remove_res {
+            Ok(name) => name,
+            Err(da::Error::NonexistentPosition { pos }) => {
+                self.cx
+                    .answer(format!("Nonexistent position: {}", pos))
+                    .reply_to_message_id(self.cx.update.id)
+                    .send()
+                    .await?;
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        let queue_elem = self.repo.get_elements_for_queue(&reply_queue)?;
+        let str_queue = format_queue(queue_elem.as_slice());
+
+        self.cx
+            .requester
+            .edit_message_text(self.chat.id, reply_queue.id as i32, str_queue)
+            .send()
+            .await?;
+
+        self.cx
+            .answer(format!("Removed {} from {}", removed_name, index))
+            .reply_to_message_id(self.cx.update.id)
+            .send()
+            .await?;
+
         Ok(())
     }
 
@@ -331,6 +384,7 @@ impl CommandHandler<'_> {
             None => {
                 self.cx
                     .answer("Please reply to a message with a file.")
+                    .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
             }
@@ -339,6 +393,15 @@ impl CommandHandler<'_> {
     }
 
     pub async fn swap(self, pos1: i32, pos2: i32) -> error::Result<()> {
+        if pos1 == pos2 {
+            self.cx
+                .answer("Can't swap position with itself")
+                .reply_to_message_id(self.cx.update.id)
+                .send()
+                .await?;
+            return Ok(());
+        }
+
         let reply_queue = self
             .cx
             .update
@@ -377,20 +440,23 @@ impl CommandHandler<'_> {
                             .unwrap()
                             .element_name;
 
-                        let mut answ = self.cx.answer(format!(
-                            "Swapped {} ({}) and {} ({})",
-                            pos2_name, pos1, pos1_name, pos2
-                        ));
-                        answ.reply_to_message_id = Some(self.cx.update.id);
-                        answ.send().await?;
+                        self.cx
+                            .answer(format!(
+                                "Swapped {} ({}) and {} ({})",
+                                pos2_name, pos1, pos1_name, pos2
+                            ))
+                            .reply_to_message_id(self.cx.update.id)
+                            .send()
+                            .await?;
                     }
                     Err(da::Error::NonexistentPosition { pos }) => {
                         self.cx
                             .answer(format!("Nonexistent position: {}", pos))
+                            .reply_to_message_id(self.cx.update.id)
                             .send()
                             .await?;
                     }
-                    Err(da::Error::Diesel(e)) => Err(e)?,
+                    Err(e) => return Err(e.into()),
                 }
             }
             None => {
@@ -398,6 +464,7 @@ impl CommandHandler<'_> {
                     .answer(
                         "You must reply to a queue created by this bot for this command to work.",
                     )
+                    .reply_to_message_id(self.cx.update.id)
                     .send()
                     .await?;
             }

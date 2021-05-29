@@ -12,16 +12,12 @@ impl QueueRepository {
         QueueRepository { conn }
     }
 
-    pub fn get_chat(&self, chat_id: i64) -> Result<models::Chat, diesel::result::Error> {
+    pub fn get_chat(&self, chat_id: i64) -> super::error::Result<models::Chat> {
         use schema::chats::dsl::*;
-        chats.filter(id.eq(chat_id)).first::<Chat>(&self.conn)
+        Ok(chats.filter(id.eq(chat_id)).first::<Chat>(&self.conn)?)
     }
 
-    pub fn create_new_queue(
-        &self,
-        id: i64,
-        chat_id: i64,
-    ) -> Result<models::Queue, diesel::result::Error> {
+    pub fn create_new_queue(&self, id: i64, chat_id: i64) -> super::error::Result<models::Queue> {
         use schema::queues::dsl::queues;
 
         Ok(diesel::insert_into(queues)
@@ -33,7 +29,7 @@ impl QueueRepository {
         &self,
         queue: Queue,
         queue_elems: Vec<QueueElementForQueue>,
-    ) -> Result<Vec<QueueElement>, diesel::result::Error> {
+    ) -> super::error::Result<Vec<QueueElement>> {
         use schema::queue_elements::dsl::*;
 
         Ok(diesel::insert_into(queue_elements)
@@ -46,7 +42,7 @@ impl QueueRepository {
             .get_results(&self.conn)?)
     }
 
-    pub fn get_or_create_chat(&self, chat_id: i64) -> Result<models::Chat, diesel::result::Error> {
+    pub fn get_or_create_chat(&self, chat_id: i64) -> super::error::Result<models::Chat> {
         use schema::chats::dsl::*;
         Ok(match self.get_chat(chat_id) {
             Ok(c) => c,
@@ -59,7 +55,7 @@ impl QueueRepository {
     pub fn get_elements_for_queue(
         &self,
         queue: &Queue,
-    ) -> Result<Vec<QueueElementForQueue>, diesel::result::Error> {
+    ) -> super::error::Result<Vec<QueueElementForQueue>> {
         use queue_elements as qe;
         use schema::*;
 
@@ -79,26 +75,17 @@ impl QueueRepository {
             .load::<QueueElementForQueue>(&self.conn)?)
     }
 
-    pub fn get_previous_queue_for_chat(
-        &self,
-        chat: &Chat,
-    ) -> Result<Option<Queue>, diesel::result::Error> {
+    pub fn get_previous_queue_for_chat(&self, chat: &Chat) -> super::error::Result<Option<Queue>> {
         use schema::queues::dsl::*;
 
-        Ok(
-            match queues
-                .filter(chat_id.eq(&chat.id))
-                .order(id.desc())
-                .first::<Queue>(&self.conn)
-            {
-                Ok(queue) => Some(queue),
-                Err(diesel::NotFound) => None,
-                Err(e) => return Err(e),
-            },
-        )
+        Ok(queues
+            .filter(chat_id.eq(&chat.id))
+            .order(id.desc())
+            .first::<Queue>(&self.conn)
+            .optional()?)
     }
 
-    pub fn queue_exists(&self, queue: Queue) -> Result<Option<Queue>, diesel::result::Error> {
+    pub fn queue_exists(&self, queue: Queue) -> super::error::Result<Option<Queue>> {
         use schema::queues::dsl::*;
 
         Ok(
@@ -108,7 +95,7 @@ impl QueueRepository {
             {
                 Ok(queue) => Some(queue),
                 Err(diesel::NotFound) => None,
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             },
         )
     }
@@ -180,10 +167,12 @@ impl QueueRepository {
                             .eq(queue.id)
                             .and(qe::chat_id.eq(&queue.chat_id)),
                     )
-                    .select(max(qe::queue_place))
+                    .select(max(qe::queue_place) + 1)
                     .first(&self.conn)?)
             })?
-            .unwrap_or(0);
+            .ok_or(Error::Wtf(
+                "Tried to unwrap but there was no value? How?".to_string(),
+            ))?;
 
         self.conn.transaction::<_, Error, _>(|| {
             diesel::update(
@@ -212,12 +201,27 @@ impl QueueRepository {
         Ok(())
     }
 
-    pub fn remove_elem(&self, queue: &Queue, index: i32) -> super::error::Result<()> {
+    pub fn remove_elem(&self, queue: &Queue, index: i32) -> super::error::Result<String> {
         use super::error::Error;
         use schema::queue_elements as qe;
 
-        self.conn.transaction::<_, Error, _>(|| {
-            diesel::delete(qe::table.filter(qe::queue_place.eq(index))).execute(&self.conn)?;
+        let deleted_name = self.conn.transaction::<_, Error, _>(|| {
+            let elem_name = match diesel::delete(
+                qe::table.filter(
+                    qe::queue_id
+                        .eq(queue.id)
+                        .and(qe::chat_id.eq(&queue.chat_id))
+                        .and(qe::queue_place.eq(index)),
+                ),
+            )
+            .returning(qe::element_name)
+            .get_result::<String>(&self.conn)
+            {
+                Err(diesel::result::Error::NotFound) => {
+                    return Err(Error::NonexistentPosition { pos: index });
+                }
+                v => v,
+            }?;
 
             diesel::update(
                 qe::table.filter(
@@ -230,9 +234,9 @@ impl QueueRepository {
             .set(qe::queue_place.eq(qe::queue_place - 1))
             .execute(&self.conn)?;
 
-            Ok(())
+            Ok(elem_name)
         })?;
 
-        Ok(())
+        Ok(deleted_name)
     }
 }
