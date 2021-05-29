@@ -5,11 +5,11 @@ mod error;
 #[macro_use]
 extern crate diesel;
 
-use da::QueueRepository;
+
 use diesel::{Connection, PgConnection};
 use futures::Future;
 use rand;
-use std::{collections::HashMap, env, error::Error, net::Ipv4Addr, str::from_utf8};
+use std::{collections::HashMap, env, net::Ipv4Addr, str::from_utf8};
 use teloxide::{
     net::Download,
     payloads::SendMessageSetters,

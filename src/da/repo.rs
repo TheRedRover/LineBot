@@ -245,7 +245,7 @@ impl QueueRepository {
         queue: &QueueKey,
         new_name: String,
     ) -> super::error::Result<String> {
-        use super::error::Error;
+        
         use schema::queues as q;
 
         let new_name: Option<_> =
