@@ -223,37 +223,9 @@ pub struct CommandHandler<'a> {
 
 impl CommandHandler<'_> {
     pub async fn random_queue(self, name: Option<String>) -> error::Result<()> {
-        let prev_queue = self.repo.get_previous_queue_for_chat(&self.chat)?;
-        let prev_queue = match prev_queue {
-            Some(prev_queue) => prev_queue,
-            None => {
-                self.cx
-                    .answer("You must first call the file variant in this chat.")
-                    .reply_to_message_id(self.cx.update.id)
-                    .send()
-                    .await?;
-                return Ok(());
-            }
-        };
+        let reply_queue = self.get_reply_to_queue()?;
 
-        let selected_queue = match self
-            .cx
-            .update
-            .reply_to_message()
-            .map(|Message { id, .. }| {
-                self.repo.queue_exists(da::QueueKey {
-                    id: *id as i64,
-                    chat_id: self.chat.id,
-                })
-            })
-            .transpose()?
-            .flatten()
-        {
-            Some(q) => q,
-            None => prev_queue,
-        };
-
-        let queue = self.repo.get_elements_for_queue(&selected_queue.key())?;
+        let queue = self.repo.get_elements_for_queue(&reply_queue.key())?;
         let shuffled_queue_elems = shuffled_queue(queue);
 
         let str_queue = format_queue(
@@ -264,7 +236,7 @@ impl CommandHandler<'_> {
 
         let queue = self.repo.create_new_queue(da::Queue {
             id: sent_id as i64,
-            chat_id: selected_queue.chat_id,
+            chat_id: reply_queue.chat_id,
             qname: name,
         })?;
         self.repo
