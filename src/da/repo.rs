@@ -75,16 +75,6 @@ impl QueueRepository {
             .load::<QueueElementForQueue>(&self.conn)?)
     }
 
-    pub fn get_previous_queue_for_chat(&self, chat: &Chat) -> super::error::Result<Option<Queue>> {
-        use schema::queues::dsl::*;
-
-        Ok(queues
-            .filter(chat_id.eq(&chat.id))
-            .order(id.desc())
-            .first::<Queue>(&self.conn)
-            .optional()?)
-    }
-
     pub fn queue_exists(&self, queue: QueueKey) -> super::error::Result<Option<Queue>> {
         use schema::queues::dsl::*;
 
@@ -121,9 +111,9 @@ impl QueueRepository {
             match pos_filter(pos).first::<QueueElement>(&self.conn) {
                 Ok(exists) => Ok(exists),
                 Err(diesel::result::Error::NotFound) => {
-                    return Err(Error::NonexistentPosition { pos });
+                    Err(Error::NonexistentPosition { pos })
                 }
-                Err(e) => Err(e)?,
+                Err(e) => Err(e.into()),
             }
         };
         let pos1 = f_query(pos1)?;
@@ -161,16 +151,16 @@ impl QueueRepository {
         let index: i32 = index
             .map(|x| Ok(Some(x)))
             .unwrap_or_else(|| -> Result<Option<i32>, diesel::result::Error> {
-                Ok(qe::table
+                qe::table
                     .filter(
                         qe::queue_id
                             .eq(queue.id)
                             .and(qe::chat_id.eq(&queue.chat_id)),
                     )
                     .select(max(qe::queue_place) + 1)
-                    .first(&self.conn)?)
+                    .first(&self.conn)
             })?
-            .ok_or(Error::Wtf(
+            .ok_or_else(||Error::Wtf(
                 "Tried to unwrap but there was no value? How?".to_string(),
             ))?;
 

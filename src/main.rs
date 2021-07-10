@@ -8,7 +8,6 @@ extern crate diesel;
 
 use diesel::{Connection, PgConnection};
 use futures::Future;
-use rand;
 use std::{collections::HashMap, env, net::Ipv4Addr, str::from_utf8};
 use teloxide::{
     net::Download,
@@ -66,7 +65,7 @@ enum QueueCommand {
 }
 
 fn accept_string_and_number(input: String) -> Result<(String, Option<i32>), ParseError> {
-    let mut split = input.split("^");
+    let mut split = input.split('^');
     let string = split.next().map(|x| x.trim());
     let number = split.next().map(|x| x.trim());
 
@@ -82,7 +81,7 @@ fn accept_string_and_number(input: String) -> Result<(String, Option<i32>), Pars
 
 fn accept_string_opt(input: String) -> Result<(Option<String>,), ParseError> {
     let trim = input.trim();
-    Ok(if trim.len() == 0 {
+    Ok(if trim.is_empty() {
         (None,)
     } else {
         // optimize allocations
@@ -117,9 +116,9 @@ async fn answer(cx: UpdateWithCx<Bot, Message>, command: QueueCommand) -> error:
     let chat_id = cx.update.chat_id();
     let chat = repo.get_or_create_chat(chat_id)?;
     let command_handler = CommandHandler {
-        repo: repo,
+        repo,
         cx: &cx,
-        chat: chat,
+        chat,
     };
 
     log::info!("Chat: {}; Command: {:?}", chat_id, command);
@@ -189,15 +188,15 @@ fn create_bot() -> impl Future {
     let bot = Bot::from_env();
 
     let bot_name = env::var(consts::BOT_NAME)
-        .expect(format!("You must provide the {} env variable", consts::BOT_NAME).as_str());
+        .unwrap_or_else(|_|panic!("You must provide the {} env variable", consts::BOT_NAME));
 
     teloxide::commands_repl(bot, bot_name, answer)
 }
 
 fn establish_connection() -> PgConnection {
     let database_url = env::var(consts::DATABASE_URL)
-        .expect(format!("{} must be set", consts::DATABASE_URL).as_str());
-    PgConnection::establish(&database_url).expect(&format!("Error connecting to {}", database_url))
+        .unwrap_or_else(|_|panic!("{} must be set", consts::DATABASE_URL));
+    PgConnection::establish(&database_url).unwrap_or_else(|_|panic!("Error connecting to {}", database_url))
 }
 
 fn create_http_server() -> impl Future {
@@ -229,7 +228,7 @@ impl CommandHandler<'_> {
         let shuffled_queue_elems = shuffled_queue(queue);
 
         let str_queue = format_queue(
-            name.as_ref().map(|x| x.as_str()),
+            name.as_deref(),
             shuffled_queue_elems.as_slice(),
         );
         let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
@@ -259,7 +258,7 @@ impl CommandHandler<'_> {
         let queue_elem = self.repo.get_elements_for_queue(&reply_queue.key())?;
 
         let str_queue = format_queue(
-            reply_queue.qname.as_ref().map(|x| x.as_str()),
+            reply_queue.qname.as_deref(),
             queue_elem.as_slice(),
         );
 
@@ -275,7 +274,7 @@ impl CommandHandler<'_> {
                 name,
                 index
                     .map(|x| x.to_string())
-                    .unwrap_or("the last position".to_string())
+                    .unwrap_or_else(||"the last position".to_string())
             ))
             .reply_to_message_id(self.cx.update.id)
             .send()
@@ -291,7 +290,7 @@ impl CommandHandler<'_> {
 
         let queue_elem = self.repo.get_elements_for_queue(&reply_queue.key())?;
         let str_queue = format_queue(
-            reply_queue.qname.as_ref().map(|x| x.as_str()),
+            reply_queue.qname.as_deref(),
             queue_elem.as_slice(),
         );
 
@@ -353,7 +352,7 @@ impl CommandHandler<'_> {
             })
             .collect::<Vec<_>>();
 
-        let str_queue = format_queue(name.as_ref().map(|x| x.as_str()), queue_elems.as_slice());
+        let str_queue = format_queue(name.as_deref(), queue_elems.as_slice());
         let Message { id: sent_id, .. } = self.cx.answer(str_queue).send().await?;
 
         let queue = self.repo.create_new_queue(da::Queue {
@@ -383,7 +382,7 @@ impl CommandHandler<'_> {
         let queue: Vec<da::QueueElementForQueue> =
             self.repo.get_elements_for_queue(&reply_queue.key())?;
         let str_queue = format_queue(
-            reply_queue.qname.as_ref().map(|x| x.as_str()),
+            reply_queue.qname.as_deref(),
             queue.as_slice(),
         );
 

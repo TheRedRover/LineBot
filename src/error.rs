@@ -12,7 +12,7 @@ pub enum Error {
     #[error("Teloxide download error")]
     TeloxideDonload(#[from] teloxide::DownloadError),
     #[error("Invalid UTF")]
-    UTF(#[from] Utf8Error),
+    Utf(#[from] Utf8Error),
     #[error("No queue reply.")]
     NoQueueReply,
 }
